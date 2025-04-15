@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::ops::{Add, Mul, Sub};
 use wasm_bindgen::prelude::*;
 
@@ -249,11 +248,36 @@ fn calc_forces(
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
+#[derive(Copy, Clone)]
+struct SpaceParticleLink {
+    idx: usize,
+    flipvertical: bool,
+    fliphorizontal: bool,
+}
+
+impl SpaceParticleLink {
+    fn new(idx: usize) -> SpaceParticleLink {
+        SpaceParticleLink {
+            idx: idx,
+            flipvertical: false,
+            fliphorizontal: false,
+        }
+    }
+
+    fn apply(self, other: SpaceParticleLink) -> SpaceParticleLink {
+        SpaceParticleLink {
+            idx: self.idx,
+            flipvertical: self.flipvertical ^ other.flipvertical,
+            fliphorizontal: self.fliphorizontal ^ other.fliphorizontal,
+        }
+    }
+}
+
 struct SpaceParticle {
-    left: Option<usize>,
-    right: Option<usize>,
-    down: Option<usize>,
-    up: Option<usize>,
+    left: Option<SpaceParticleLink>,
+    right: Option<SpaceParticleLink>,
+    down: Option<SpaceParticleLink>,
+    up: Option<SpaceParticleLink>,
 
     uv: HashSet<(usize, usize)>,
 
@@ -264,6 +288,217 @@ struct SpaceGraph {
     graph: Vec<SpaceParticle>,
     sizex: usize,
     sizey: usize,
+}
+
+// a bracketed direction means reverse
+macro_rules! sg_at_dir {
+    ($graph:expr, $idx:expr, R) => {
+        {
+            let idx = $idx;
+            (if $idx.fliphorizontal {
+                $graph.graph[idx.idx].left
+            } else {
+                $graph.graph[idx.idx].right
+            }).map(|p| p.apply(idx))
+        }
+    };
+    ($graph:expr, $idx:expr, U) => {
+        {
+            let idx = $idx;
+            (if $idx.flipvertical {
+                $graph.graph[idx.idx].down
+            } else {
+                $graph.graph[idx.idx].up
+            }).map(|p| p.apply(idx))
+        }
+    };
+    ($graph:expr, $idx:expr, D) => {
+        {
+            let idx = $idx;
+            (if $idx.flipvertical {
+                $graph.graph[idx.idx].up
+            } else {
+                $graph.graph[idx.idx].down
+            }).map(|p| p.apply(idx))
+        }
+    };
+    ($graph:expr, $idx:expr, L) => {
+        {
+            let idx = $idx;
+            (if $idx.fliphorizontal {
+                $graph.graph[idx.idx].right
+            } else {
+                $graph.graph[idx.idx].left
+            }).map(|p| p.apply(idx))
+        }
+    };
+    ($graph:expr, $idx:expr, [R]) => {
+        sg_at_dir!($graph, $idx, L)
+    };
+    ($graph:expr, $idx:expr, [U]) => {
+        sg_at_dir!($graph, $idx, D)
+    };
+    ($graph:expr, $idx:expr, [D]) => {
+        sg_at_dir!($graph, $idx, U)
+    };
+    ($graph:expr, $idx:expr, [L]) => {
+        sg_at_dir!($graph, $idx, R)
+    };
+    ($graph:expr, $idx:expr, [[$dir:tt]]) => {
+        // just in case
+        sg_at_dir!($graph, $idx, $dir)
+    };
+}
+
+macro_rules! sg_set_at_dir {
+    ($graph:expr, $idx:expr, R, $val:expr) => {
+        if $idx.fliphorizontal {
+            $graph.graph[$idx.idx].left = $val
+        } else {
+            $graph.graph[$idx.idx].right = $val
+        }
+    };
+    ($graph:expr, $idx:expr, U, $val:expr) => {
+        if $idx.flipvertical {
+            $graph.graph[$idx.idx].down = $val
+        } else {
+            $graph.graph[$idx.idx].up = $val
+        }
+    };
+    ($graph:expr, $idx:expr, D, $val:expr) => {
+        if $idx.flipvertical {
+            $graph.graph[$idx.idx].up = $val
+        } else {
+            $graph.graph[$idx.idx].down = $val
+        }
+    };
+    ($graph:expr, $idx:expr, L, $val:expr) => {
+        if $idx.fliphorizontal {
+            $graph.graph[$idx.idx].right = $val
+        } else {
+            $graph.graph[$idx.idx].left = $val
+        }
+    };
+    ($graph:expr, $idx:expr, [R], $val:expr) => {
+        sg_set_at_dir!($graph, $idx, L, $val)
+    };
+    ($graph:expr, $idx:expr, [U], $val:expr) => {
+        sg_set_at_dir!($graph, $idx, D, $val)
+    };
+    ($graph:expr, $idx:expr, [D], $val:expr) => {
+        sg_set_at_dir!($graph, $idx, U, $val)
+    };
+    ($graph:expr, $idx:expr, [L], $val:expr) => {
+        sg_set_at_dir!($graph, $idx, R, $val)
+    };
+    ($graph:expr, $idx:expr, [[$dir:tt]], $val:expr) => {
+        // just in case
+        sg_set_at_dir!($graph, $idx, $dir, $val)
+    };
+}
+
+macro_rules! sg_process_move {
+    ($graph:expr, $idx:expr, $move:tt) => {
+        sg_at_dir!($graph, $idx, $move)?
+    };
+}
+
+macro_rules! sg_mv_ {
+    ($graph:expr, $idx:expr, ) => {$idx};
+    ($graph:expr, $idx:expr, $move:tt $($moves:tt)*) => {
+        sg_mv_!($graph, sg_process_move!($graph, $idx, $move), $($moves)*)
+    };
+}
+
+macro_rules! sg_mv_try {
+    ($graph:expr, $idx:expr, $($moves:tt)*) => {
+        (|| Some(sg_mv_!($graph, $idx, $($moves)*)))()
+    };
+}
+
+macro_rules! sg_mv {
+    ($graph:expr, $idx:expr, $($moves:tt)*) => {
+        sg_mv_try!($graph, $idx, $($moves)*).unwrap()
+    };
+}
+
+macro_rules! sg_connect {
+    ($graph:expr, $idx1:expr, $idx2:expr, $dir:tt) => {
+        sg_set_at_dir!($graph, $idx1, $dir, Some($idx2));
+        sg_set_at_dir!($graph, $idx2, [$dir], Some($idx1));
+    };
+}
+
+macro_rules! sg_connect_flipv_ {
+    ($graph:expr, $idx1:expr, $idx2:expr, $dir:tt) => {
+        sg_set_at_dir!($graph, $idx1, $dir, Some($idx2.apply(SpaceParticleLink {idx: 0, flipvertical: true, fliphorizontal: false})));
+        sg_set_at_dir!($graph, $idx2, [$dir], Some($idx1.apply(SpaceParticleLink {idx: 0, flipvertical: true, fliphorizontal: false})));
+    };
+}
+
+macro_rules! sg_connect_fliph_ {
+    ($graph:expr, $idx1:expr, $idx2:expr, $dir:tt) => {
+        sg_set_at_dir!($graph, $idx1, $dir, Some($idx2.apply(SpaceParticleLink {idx: 0, flipvertical: false, fliphorizontal: true})));
+        sg_set_at_dir!($graph, $idx2, [$dir], Some($idx1.apply(SpaceParticleLink {idx: 0, flipvertical: false, fliphorizontal: true})));
+    };
+}
+
+macro_rules! sg_connect_flip {
+    ($graph:expr, $idx1:expr, $idx2:expr, R) => {
+        sg_connect_flipv_!($graph, $idx1, $idx2, R)
+    };
+    ($graph:expr, $idx1:expr, $idx2:expr, U) => {
+        sg_connect_fliph_!($graph, $idx1, $idx2, U)
+    };
+    ($graph:expr, $idx1:expr, $idx2:expr, D) => {
+        sg_connect_fliph_!($graph, $idx1, $idx2, D)
+    };
+    ($graph:expr, $idx1:expr, $idx2:expr, L) => {
+        sg_connect_flipv_!($graph, $idx1, $idx2, L)
+    };
+}
+
+macro_rules! sg_copy_uv {
+    ($graph:expr, $idx1:expr, $idx2:expr) => {
+        {
+            let uv = $graph.graph[$idx1.idx].uv.clone();
+            $graph.graph[$idx2.idx].uv.extend(uv);
+        }
+    };
+}
+
+macro_rules! sg_exchange {
+    ($graph:expr, $idx1:expr, $idx2:expr, $dir:tt) => {
+        {
+            let i1 = sg_mv!($graph, $idx1, $dir);
+            let i2 = sg_mv!($graph, $idx2, $dir);
+
+            sg_connect!($graph, $idx1, i2, $dir);
+            sg_connect!($graph, $idx2, i1, $dir);
+
+            sg_exchange_uv!($graph, $idx1, $idx2);
+        }
+    };
+}
+
+macro_rules! sg_disconnect {
+    ($graph:expr, $idx:expr, $dir:tt) => {
+        {
+            let i = sg_mv!($graph, $idx, $dir);
+
+            sg_set_at_dir!($graph, $idx, $dir, None);
+            sg_set_at_dir!($graph, i, [$dir], None);
+        }
+    };
+}
+
+macro_rules! sg_exchange_uv {
+    ($graph:expr, $idx1:expr, $idx2:expr) => {
+        {
+            sg_copy_uv!($graph, $idx1, $idx2);
+            sg_copy_uv!($graph, $idx2, $idx1);
+        }
+    };
 }
 
 impl SpaceGraph {
@@ -304,8 +539,8 @@ impl SpaceGraph {
         result
     }
 
-    fn get_index(&self, i: usize, j: usize) -> usize {
-        i * self.sizey + j
+    fn get_index(&self, i: usize, j: usize) -> SpaceParticleLink {
+        SpaceParticleLink::new(i * self.sizey + j)
     }
 
     fn make_portal1_scene(&mut self) {
@@ -315,45 +550,23 @@ impl SpaceGraph {
         let end_y = (self.sizey as f32 * 0.6) as usize;
 
         let sizey = self.sizey;
-        let get_index = |i, j| i * sizey + j;
+        let get_index = |i, j| SpaceParticleLink::new(i * sizey + j);
 
         // -------------------------------------------------------------------
 
         // Disconnect singularity points from up and down
 
-        self.graph[get_index(blue_x, start_y)].down = None;
-        self.graph[get_index(blue_x, start_y - 1)].up = None;
-
-        self.graph[get_index(blue_x, end_y)].up = None;
-        self.graph[get_index(blue_x, end_y + 1)].down = None;
-
-        self.graph[get_index(orange_x, start_y)].down = None;
-        self.graph[get_index(orange_x, start_y - 1)].up = None;
-
-        self.graph[get_index(orange_x, end_y)].up = None;
-        self.graph[get_index(orange_x, end_y + 1)].down = None;
+        sg_disconnect!(self, get_index(blue_x, start_y), D);
+        sg_disconnect!(self, get_index(blue_x, end_y), U);
+        sg_disconnect!(self, get_index(orange_x, start_y), D);
+        sg_disconnect!(self, get_index(orange_x, end_y), U);
 
         // -------------------------------------------------------------------
 
         // Connect the main vertical surface
 
         for j in start_y..=end_y {
-            let m1 = get_index(blue_x, j);
-            let r1 = get_index(blue_x + 1, j);
-            let m2 = get_index(orange_x, j);
-            let r2 = get_index(orange_x + 1, j);
-
-            self.graph[m1].right = Some(r2);
-            self.graph[r2].left = Some(m1);
-
-            self.graph[m2].right = Some(r1);
-            self.graph[r1].left = Some(m2);
-
-            let new_uv = self.graph[m2].uv.clone();
-            self.graph[m1].uv.extend(new_uv);
-
-            let new_uv = self.graph[m1].uv.clone();
-            self.graph[m2].uv.extend(new_uv);
+            sg_exchange!(self, get_index(blue_x, j), get_index(orange_x, j), R);
         }
     }
 
@@ -364,54 +577,27 @@ impl SpaceGraph {
         let mut end_y = (self.sizey as f32 * 0.6) as usize;
 
         let sizey = self.sizey;
-        let get_index = |i, j| i * sizey + j; // I'm not using method because of stupid borrowing issues, why rust can't handle that
+        let get_index = |i, j| SpaceParticleLink::new(i * sizey + j); // I'm not using method because of stupid borrowing issues, why rust can't handle that
 
         // -------------------------------------------------------------------
 
         // Disconnect singularity points from up and down
 
-        self.graph[get_index(blue_x, start_y)].down = None;
-        self.graph[get_index(blue_x, start_y - 1)].up = None;
-
-        self.graph[get_index(blue_x, end_y)].up = None;
-        self.graph[get_index(blue_x, end_y + 1)].down = None;
-
-        self.graph[get_index(orange_x, start_y)].down = None;
-        self.graph[get_index(orange_x, start_y - 1)].up = None;
-
-        self.graph[get_index(orange_x, end_y)].up = None;
-        self.graph[get_index(orange_x, end_y + 1)].down = None;
+        sg_disconnect!(self, get_index(blue_x, start_y), D);
+        sg_disconnect!(self, get_index(blue_x, end_y), U);
+        sg_disconnect!(self, get_index(orange_x, start_y), D);
+        sg_disconnect!(self, get_index(orange_x, end_y), U);
 
         // -------------------------------------------------------------------
 
         // Connect upper and lower portal surface
 
         for _ in 0..2 {
-            self.graph[get_index(blue_x, start_y)].up = Some(get_index(orange_x, start_y + 1));
-            self.graph[get_index(orange_x, start_y + 1)].down = Some(get_index(blue_x, start_y));
-
-            self.graph[get_index(orange_x, start_y)].up = Some(get_index(blue_x, start_y + 1));
-            self.graph[get_index(blue_x, start_y + 1)].down = Some(get_index(orange_x, start_y));
-
-            let new_uv = self.graph[get_index(blue_x, start_y)].uv.clone();
-            self.graph[get_index(orange_x, start_y)].uv.extend(new_uv);
-
-            let new_uv = self.graph[get_index(orange_x, start_y)].uv.clone();
-            self.graph[get_index(blue_x, start_y)].uv.extend(new_uv);
+            sg_exchange!(self, get_index(blue_x, start_y), get_index(orange_x, start_y), U);
 
             // ---------------------------------------------------------------
 
-            self.graph[get_index(blue_x, end_y)].down = Some(get_index(orange_x, end_y - 1));
-            self.graph[get_index(orange_x, end_y - 1)].up = Some(get_index(blue_x, end_y));
-
-            self.graph[get_index(orange_x, end_y)].down = Some(get_index(blue_x, end_y - 1));
-            self.graph[get_index(blue_x, end_y - 1)].up = Some(get_index(orange_x, end_y));
-
-            let new_uv = self.graph[get_index(blue_x, end_y)].uv.clone();
-            self.graph[get_index(orange_x, end_y)].uv.extend(new_uv);
-
-            let new_uv = self.graph[get_index(orange_x, end_y)].uv.clone();
-            self.graph[get_index(blue_x, end_y)].uv.extend(new_uv);
+            sg_exchange!(self, get_index(blue_x, end_y), get_index(orange_x, end_y), D);
 
             blue_x -= 1;
             orange_x -= 1;
@@ -423,39 +609,8 @@ impl SpaceGraph {
 
         // Connect singularity points from left to right (this is ok) in lower part
 
-        let m1 = get_index(blue_x, start_y);
-        let r1 = get_index(blue_x + 1, start_y);
-        let m2 = get_index(orange_x, start_y);
-        let r2 = get_index(orange_x + 1, start_y);
-
-        self.graph[m1].right = Some(r2);
-        self.graph[r2].left = Some(m1);
-
-        self.graph[m2].right = Some(r1);
-        self.graph[r1].left = Some(m2);
-
-        let new_uv = self.graph[m2].uv.clone();
-        self.graph[m1].uv.extend(new_uv);
-
-        let new_uv = self.graph[m1].uv.clone();
-        self.graph[m2].uv.extend(new_uv);
-
-        let m1 = get_index(blue_x, end_y);
-        let r1 = get_index(blue_x + 1, end_y);
-        let m2 = get_index(orange_x, end_y);
-        let r2 = get_index(orange_x + 1, end_y);
-
-        self.graph[m1].right = Some(r2);
-        self.graph[r2].left = Some(m1);
-
-        self.graph[m2].right = Some(r1);
-        self.graph[r1].left = Some(m2);
-
-        let new_uv = self.graph[m2].uv.clone();
-        self.graph[m1].uv.extend(new_uv);
-
-        let new_uv = self.graph[m1].uv.clone();
-        self.graph[m2].uv.extend(new_uv);
+        sg_exchange!(self, get_index(blue_x, start_y), get_index(orange_x, start_y), R);
+        sg_exchange!(self, get_index(blue_x, end_y), get_index(orange_x, end_y), R);
 
         // -------------------------------------------------------------------
 
@@ -466,21 +621,8 @@ impl SpaceGraph {
 
         // Add uv coordinates to singularity points
 
-        let m1 = get_index(blue_x, start_y);
-        let m2 = get_index(orange_x, start_y);
-        let new_uv = self.graph[m2].uv.clone();
-        self.graph[m1].uv.extend(new_uv);
-
-        let new_uv = self.graph[m1].uv.clone();
-        self.graph[m2].uv.extend(new_uv);
-
-        let m1 = get_index(blue_x, end_y);
-        let m2 = get_index(orange_x, end_y);
-        let new_uv = self.graph[m2].uv.clone();
-        self.graph[m1].uv.extend(new_uv);
-
-        let new_uv = self.graph[m1].uv.clone();
-        self.graph[m2].uv.extend(new_uv);
+        sg_exchange_uv!(self, get_index(blue_x, start_y), get_index(orange_x, start_y));
+        sg_exchange_uv!(self, get_index(blue_x, end_y), get_index(orange_x, end_y));
 
         // -------------------------------------------------------------------
 
@@ -489,100 +631,7 @@ impl SpaceGraph {
         start_y += 1;
         end_y -= 1;
         for j in start_y..=end_y {
-            let m1 = get_index(blue_x, j);
-            let r1 = get_index(blue_x + 1, j);
-            let m2 = get_index(orange_x, j);
-            let r2 = get_index(orange_x + 1, j);
-
-            self.graph[m1].right = Some(r2);
-            self.graph[r2].left = Some(m1);
-
-            self.graph[m2].right = Some(r1);
-            self.graph[r1].left = Some(m2);
-
-            let new_uv = self.graph[m2].uv.clone();
-            self.graph[m1].uv.extend(new_uv);
-
-            let new_uv = self.graph[m1].uv.clone();
-            self.graph[m2].uv.extend(new_uv);
-        }
-    }
-}
-
-impl SpaceGraph {
-    /// Compares if this SpaceGraph is structurally equal to another SpaceGraph
-    pub fn is_equal_to(&self, other: &SpaceGraph) -> bool {
-        use std::collections::{HashMap, HashSet, VecDeque};
-
-        // Check if dimensions match
-        if self.sizex != other.sizex || self.sizey != other.sizey {
-            return false;
-        }
-
-        // Handle empty graphs
-        if self.graph.is_empty() && other.graph.is_empty() {
-            return true;
-        }
-        if self.graph.is_empty() || other.graph.is_empty() {
-            return false;
-        }
-
-        // Initialize BFS queue starting with both graphs' node 0
-        let mut queue = VecDeque::new();
-        queue.push_back((0, 0)); // (self_index, other_index)
-
-        // Keep track of visited nodes and mappings between graph indices
-        let mut visited = HashSet::new();
-        let mut index_mapping = HashMap::new(); // Maps self indices to other indices
-
-        while let Some((self_idx, other_idx)) = queue.pop_front() {
-            // Skip if we've already processed this pair
-            if !visited.insert((self_idx, other_idx)) {
-                continue;
-            }
-
-            // Store the mapping
-            index_mapping.insert(self_idx, other_idx);
-
-            // Get the particles to compare
-            let self_particle = &self.graph[self_idx];
-            let other_particle = &other.graph[other_idx];
-
-            // Check directional connections
-            if !self.check_direction_match(self_particle.left, other_particle.left)
-                || !self.check_direction_match(self_particle.right, other_particle.right)
-                || !self.check_direction_match(self_particle.down, other_particle.down)
-                || !self.check_direction_match(self_particle.up, other_particle.up)
-            {
-                return false;
-            }
-
-            // Add connected nodes to the queue
-            self.add_to_queue_if_connected(&mut queue, self_particle.left, other_particle.left);
-            self.add_to_queue_if_connected(&mut queue, self_particle.right, other_particle.right);
-            self.add_to_queue_if_connected(&mut queue, self_particle.down, other_particle.down);
-            self.add_to_queue_if_connected(&mut queue, self_particle.up, other_particle.up);
-        }
-
-        // Ensure all nodes were visited (graph is fully connected)
-        index_mapping.len() == self.graph.len() && index_mapping.len() == other.graph.len()
-    }
-
-    /// Helper to check if direction connections match in pattern
-    fn check_direction_match(&self, self_dir: Option<usize>, other_dir: Option<usize>) -> bool {
-        // Both should either have a connection or not have a connection
-        self_dir.is_some() == other_dir.is_some()
-    }
-
-    /// Helper to add connected nodes to the queue
-    fn add_to_queue_if_connected(
-        &self,
-        queue: &mut VecDeque<(usize, usize)>,
-        self_dir: Option<usize>,
-        other_dir: Option<usize>,
-    ) {
-        if let (Some(self_next), Some(other_next)) = (self_dir, other_dir) {
-            queue.push_back((self_next, other_next));
+            sg_exchange!(self, get_index(blue_x, j), get_index(orange_x, j), R);
         }
     }
 }
@@ -658,30 +707,47 @@ impl Mesh {
         }
 
         // Helper function to get index from grid coordinates
-        let get_index = |i, j| i * sizey + j;
-        let get_index_inv = |i, j| get_index(j, i);
-        // let get_coords = |idx: usize| (idx / sizey, idx % sizey);
+        let get_index = |i, j| SpaceParticleLink::new(i * sizey + j);
 
         let mut space_graph = SpaceGraph::new(sizex, sizey);
 
         if scene == "cylinder" || scene == "torus" {
             for j in 0..sizey {
-                space_graph.graph[get_index_inv(j, 0)].left = Some(get_index_inv(j, sizex - 2));
-                space_graph.graph[get_index_inv(j, sizex - 2)].right = Some(get_index_inv(j, 0));
+                let l = get_index(0, j); // left edge
+                let r = get_index(sizex - 2, j); // right edge
+                let e = sg_mv!(space_graph, r, R); // just past the right edge
 
-                let new_uv = space_graph.graph[get_index_inv(j, sizex - 1)].uv.clone();
-                space_graph.graph[get_index_inv(j, 0)].uv.extend(new_uv);
-                space_graph.graph[get_index_inv(j, sizex - 1)].left = None;
+                sg_connect!(space_graph, l, r, L); // connect left of l to right of r
+
+                sg_set_at_dir!(space_graph, e, L, None); // disconnect the "strip" at the far right edge
+
+                sg_copy_uv!(space_graph, e, l); // add uv coordinates to left edge
             }
         }
-        if scene == "torus" {
+        if scene == "torus" || scene == "klein_bottle" {
             for i in 0..sizex {
-                space_graph.graph[get_index(i, 0)].down = Some(get_index(i, sizey - 2));
-                space_graph.graph[get_index(i, sizey - 2)].up = Some(get_index(i, 0));
+                let b = get_index(i, 0); // bottom edge
+                let t = get_index(i, sizey - 2); // top edge
+                let e = sg_mv!(space_graph, t, U); // just past the top edge
 
-                let new_uv = space_graph.graph[get_index(i, sizey - 1)].uv.clone();
-                space_graph.graph[get_index(i, 0)].uv.extend(new_uv);
-                space_graph.graph[get_index(i, sizey - 1)].down = None;
+                sg_connect!(space_graph, b, t, D); // connect down of b to up of t
+
+                sg_set_at_dir!(space_graph, e, D, None); // disconnect the "strip" at the far top edge
+
+                sg_copy_uv!(space_graph, e, b); // add uv coordinates to left edge
+            }
+        }
+        if scene == "mobius_strip" || scene == "klein_bottle" {
+            for j in 0..sizey {
+                let l = get_index(0, j); // left edge
+                let r = get_index(sizex - 2, sizey - 1 - j); // right edge
+                let e = sg_mv!(space_graph, r, R); // just past the right edge
+
+                sg_connect_flip!(space_graph, l, r, L); // connect left of l to right of r
+
+                sg_set_at_dir!(space_graph, e, L, None); // disconnect the "strip" at the far right edge
+
+                sg_copy_uv!(space_graph, e, l); // add uv coordinates to left edge
             }
         }
         if scene == "genus_2" {
@@ -736,18 +802,6 @@ impl Mesh {
                 }
             }
         }
-        if scene == "mobius_strip" {
-            for i in 0..sizex {
-                space_graph.graph[get_index(i, 0)].down = Some(get_index(sizex - 1 - i, sizey - 2));
-                space_graph.graph[get_index(sizex - 1 - i, sizey - 2)].up = Some(get_index(i, 0));
-
-                let new_uv = space_graph.graph[get_index(sizex - 1 - i, sizey - 1)]
-                    .uv
-                    .clone();
-                space_graph.graph[get_index(i, 0)].uv.extend(new_uv);
-                space_graph.graph[get_index(i, sizey - 1)].down = None;
-            }
-        }
         if scene == "portal1" {
             space_graph.make_portal1_scene();
         }
@@ -765,30 +819,10 @@ impl Mesh {
         }
 
         for idx in 0..self.particles.len() {
-            macro_rules! process_move {
-                ($temp:expr, R) => {
-                    space_graph.graph[$temp].right?
-                };
-                ($temp:expr, U) => {
-                    space_graph.graph[$temp].up?
-                };
-                ($temp:expr, D) => {
-                    space_graph.graph[$temp].down?
-                };
-                ($temp:expr, L) => {
-                    space_graph.graph[$temp].left?
-                };
-            }
-
             macro_rules! mv {
-                () => { idx };
-                ($($moves:tt)*) => {{
-                    let mut temp = idx;
-                    $(
-                        temp = process_move!(temp, $moves);
-                    )*
-                    temp
-                }};
+                ($($moves:tt)*) => {
+                    sg_mv_try!(space_graph, SpaceParticleLink::new(idx), $($moves)*)?.idx
+                };
             }
 
             macro_rules! edge_spring {
@@ -857,21 +891,15 @@ impl Mesh {
             // dihedral_spring!(6, idx, mv!(R U), mv!(R R R R R R D D D D D), mv!(U U U U U U L L L L L));
             // dihedral_spring!(6, mv!(R), mv!(U), mv!(L D L D L D L D L D), mv!(R U R U R U R U R U R U));
 
+
             // Add triangles for drawing
             trying! {
                 if idx == mv!(U R D L) && mv!(U R D L) == mv!(R U L D) {
                     self.triangles.push(Triangle::new(idx, mv!(R), mv!(U)));
+                    self.triangles.push(Triangle::new(mv!(R U), mv!(U), mv!(R)));
                 } else {
                     // eprintln!("TR_RU, idx: {:?}, URDL: {:?}, RULD: {:?}", get_coords(idx), get_coords(mv!(U R D L)), get_coords(mv!(R U L D)));
                     // eprintln!("U: {:?}, UR: {:?}, URD: {:?}, URDL: {:?}", get_coords(mv!(U)), get_coords(mv!(U R)), get_coords(mv!(U R D)), get_coords(mv!(U R D L)));
-                }
-            }
-            trying! {
-                if idx == mv!(L D R U) && mv!(L D R U) == mv!(D L U R) {
-                    self.triangles.push(Triangle::new(idx, mv!(L), mv!(D)));
-                } else {
-                    // eprintln!("TR_LD, idx: {:?}, LDRU: {:?}, DLUR: {:?}", get_coords(idx), get_coords(mv!(L D R U)), get_coords(mv!(D L U R)));
-                    // eprintln!("L: {:?}, LD: {:?}, LDR: {:?}, LDRU: {:?}", get_coords(mv!(L)), get_coords(mv!(L D)), get_coords(mv!(L D R)), get_coords(mv!(L D R U)));
                 }
             }
         }
@@ -1201,6 +1229,84 @@ impl MeshHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl SpaceGraph {
+        /// Compares if this SpaceGraph is structurally equal to another SpaceGraph
+        pub fn is_equal_to(&self, other: &SpaceGraph) -> bool {
+            use std::collections::{HashMap, VecDeque};
+
+            // Check if dimensions match
+            if self.sizex != other.sizex || self.sizey != other.sizey {
+                return false;
+            }
+
+            // Handle empty graphs
+            if self.graph.is_empty() && other.graph.is_empty() {
+                return true;
+            }
+            if self.graph.is_empty() || other.graph.is_empty() {
+                return false;
+            }
+
+            // Initialize BFS queue starting with both graphs' node 0
+            let mut queue = VecDeque::new();
+            queue.push_back((0, 0)); // (self_index, other_index)
+
+            // Keep track of visited nodes and mappings between graph indices
+            let mut visited = HashSet::new();
+            let mut index_mapping = HashMap::new(); // Maps self indices to other indices
+
+            while let Some((self_idx, other_idx)) = queue.pop_front() {
+                // Skip if we've already processed this pair
+                if !visited.insert((self_idx, other_idx)) {
+                    continue;
+                }
+
+                // Store the mapping
+                index_mapping.insert(self_idx, other_idx);
+
+                // Get the particles to compare
+                let self_particle = &self.graph[self_idx];
+                let other_particle = &other.graph[other_idx];
+
+                // Check directional connections
+                if !self.check_direction_match(self_particle.left, other_particle.left)
+                    || !self.check_direction_match(self_particle.right, other_particle.right)
+                    || !self.check_direction_match(self_particle.down, other_particle.down)
+                    || !self.check_direction_match(self_particle.up, other_particle.up)
+                {
+                    return false;
+                }
+
+                // Add connected nodes to the queue
+                self.add_to_queue_if_connected(&mut queue, self_particle.left, other_particle.left);
+                self.add_to_queue_if_connected(&mut queue, self_particle.right, other_particle.right);
+                self.add_to_queue_if_connected(&mut queue, self_particle.down, other_particle.down);
+                self.add_to_queue_if_connected(&mut queue, self_particle.up, other_particle.up);
+            }
+
+            // Ensure all nodes were visited (graph is fully connected)
+            index_mapping.len() == self.graph.len() && index_mapping.len() == other.graph.len()
+        }
+
+        /// Helper to check if direction connections match in pattern
+        fn check_direction_match(&self, self_dir: Option<usize>, other_dir: Option<usize>) -> bool {
+            // Both should either have a connection or not have a connection
+            self_dir.is_some() == other_dir.is_some()
+        }
+
+        /// Helper to add connected nodes to the queue
+        fn add_to_queue_if_connected(
+            &self,
+            queue: &mut VecDeque<(usize, usize)>,
+            self_dir: Option<usize>,
+            other_dir: Option<usize>,
+        ) {
+            if let (Some(self_next), Some(other_next)) = (self_dir, other_dir) {
+                queue.push_back((self_next, other_next));
+            }
+        }
+    }
 
     #[test]
     fn basic() {
