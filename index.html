@@ -116,16 +116,6 @@
                     guidata.size = 50;
                     constants.iterations = 2;
                 }
-                if (guidata.scene == "klein_bottle_2") {
-                    guidata.ratio = 2;
-                    guidata.size = 50;
-                    constants.iterations = 2;
-                }
-                if (guidata.scene == "genus_2") {
-                    guidata.ratio = 1;
-                    guidata.size = 50;
-                    constants.iterations = 2;
-                }
             }
 
             meshHandle = new MeshHandle(size_x(guidata.size) + 1, size_y(guidata.size) + 1, guidata.useFlatMesh ? "flat" : guidata.scene);
@@ -310,8 +300,6 @@
                 case "portal2": return 4;
                 case "mobius_strip": return 1;
                 case "klein_bottle": return 2;
-                case "klein_bottle_2": return 2;
-                case "genus_2": return 2;
                 default: return 0;
             }
         }
@@ -371,8 +359,6 @@
                 "flat",
                 "mobius_strip",
                 "klein_bottle",
-                "klein_bottle_2",
-                //"genus_2", // has a hole
             ]).onChange(value => {
                 createMesh(false);
             });
