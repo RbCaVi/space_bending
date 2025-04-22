@@ -778,7 +778,6 @@ impl SpaceGraph {
     fn make_monoportal_scene(&mut self, identify_points: &mut Vec<(usize, usize)>) {
         let mut portal_x = (self.sizex as f32 * 0.5) as usize;
         let mut start_y = (self.sizey as f32 * 0.4) as usize;
-        let mut center_y = (self.sizey as f32 * 0.5) as usize;
         let mut end_y = (self.sizey as f32 * 0.6) as usize;
 
         let sizey = self.sizey;
@@ -797,8 +796,8 @@ impl SpaceGraph {
 
         // Connect the main vertical surface
 
-        for j in start_y..=center_y {
-            sg_connect_flip_180!(self, get_index(portal_x, j), get_index(portal_x, self.sizey - j), R);
+        for j in 0..=end_y-start_y {
+            sg_connect_flip_180!(self, get_index(portal_x, start_y + j), get_index(portal_x, end_y - j), R);
         }
     }
 }
