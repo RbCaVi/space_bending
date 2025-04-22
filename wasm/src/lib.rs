@@ -507,46 +507,15 @@ macro_rules! sg_connect_flip {
     };
 }
 
-// connect two SpaceParticles but add a vertical flip (for non orientability)
-// connects L to R etc.
-macro_rules! sg_connect_flipv_180_ {
-    ($graph:expr, $idx1:expr, $idx2:expr, $dir:tt) => {
-        {
-            let idx1 = $idx1;
-            let idx2 = $idx2;
-            sg_set_at_dir!($graph, idx1, $dir, Some(idx2.apply(FLIPV_)));
-            sg_set_at_dir!($graph, idx2, $dir, Some(idx1.apply(FLIPV_)));
-        }
-    };
-}
-
-// connect two SpaceParticles but add a horizontal flip (for non orientability)
-// connects U to D etc.
-macro_rules! sg_connect_fliph_180_ {
+// connect two SpaceParticles pointing in opposite directions - make a rotate 180 degree portal
+macro_rules! sg_connect_flip_180 {
     ($graph:expr, $idx1:expr, $idx2:expr, $dir:tt) => {
         {
             let idx1 = $idx1;
             let idx2 = $idx2;
             sg_set_at_dir!($graph, idx1, $dir, Some(idx2.apply(FLIPH_)));
             sg_set_at_dir!($graph, idx2, $dir, Some(idx1.apply(FLIPH_)));
-        }
-    };
-}
-
-// connect two SpaceParticles pointing in opposite directions - make a rotate 180 degree portal
-// depending on the direction given
-macro_rules! sg_connect_flip_180 {
-    ($graph:expr, $idx1:expr, $idx2:expr, R) => {
-        sg_connect_fliph_180_!($graph, $idx1, $idx2, R)
-    };
-    ($graph:expr, $idx1:expr, $idx2:expr, U) => {
-        sg_connect_flipv_180_!($graph, $idx1, $idx2, U)
-    };
-    ($graph:expr, $idx1:expr, $idx2:expr, D) => {
-        sg_connect_flipv_180_!($graph, $idx1, $idx2, D)
-    };
-    ($graph:expr, $idx1:expr, $idx2:expr, L) => {
-        sg_connect_fliph_180_!($graph, $idx1, $idx2, L)
+        }        
     };
 }
 
