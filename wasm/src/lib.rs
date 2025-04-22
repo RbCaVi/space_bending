@@ -798,7 +798,7 @@ impl SpaceGraph {
         // Connect the main vertical surface
 
         for j in start_y..=center_y {
-            sg_connect_flip_180!(self, get_index(portal_x, j), get_index(portal_x, end_y - j), R);
+            sg_connect_flip_180!(self, get_index(portal_x, j), get_index(portal_x, self.sizey - j), R);
         }
     }
 }
