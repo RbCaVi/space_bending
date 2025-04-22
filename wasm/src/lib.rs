@@ -507,6 +507,49 @@ macro_rules! sg_connect_flip {
     };
 }
 
+// connect two SpaceParticles but add a vertical flip (for non orientability)
+// connects L to R etc.
+macro_rules! sg_connect_flipv_180_ {
+    ($graph:expr, $idx1:expr, $idx2:expr, $dir:tt) => {
+        {
+            let idx1 = $idx1;
+            let idx2 = $idx2;
+            sg_set_at_dir!($graph, idx1, $dir, Some(idx2.apply(FLIPV_)));
+            sg_set_at_dir!($graph, idx2, $dir, Some(idx1.apply(FLIPV_)));
+        }
+    };
+}
+
+// connect two SpaceParticles but add a horizontal flip (for non orientability)
+// connects U to D etc.
+macro_rules! sg_connect_fliph_180_ {
+    ($graph:expr, $idx1:expr, $idx2:expr, $dir:tt) => {
+        {
+            let idx1 = $idx1;
+            let idx2 = $idx2;
+            sg_set_at_dir!($graph, idx1, $dir, Some(idx2.apply(FLIPH_)));
+            sg_set_at_dir!($graph, idx2, $dir, Some(idx1.apply(FLIPH_)));
+        }
+    };
+}
+
+// connect two SpaceParticles pointing in opposite directions - make a rotate 180 degree portal
+// depending on the direction given
+macro_rules! sg_connect_flip_180 {
+    ($graph:expr, $idx1:expr, $idx2:expr, R) => {
+        sg_connect_fliph_180_!($graph, $idx1, $idx2, R)
+    };
+    ($graph:expr, $idx1:expr, $idx2:expr, U) => {
+        sg_connect_flipv_180_!($graph, $idx1, $idx2, U)
+    };
+    ($graph:expr, $idx1:expr, $idx2:expr, D) => {
+        sg_connect_flipv_180_!($graph, $idx1, $idx2, D)
+    };
+    ($graph:expr, $idx1:expr, $idx2:expr, L) => {
+        sg_connect_fliph_180_!($graph, $idx1, $idx2, L)
+    };
+}
+
 // copy the uv coordinates from one SpaceParticle to another
 macro_rules! sg_copy_uv {
     ($graph:expr, $idx1:expr, $idx2:expr) => {
@@ -731,6 +774,33 @@ impl SpaceGraph {
             sg_exchange!(self, get_index(blue_x, j), get_index(orange_x, j), R);
         }
     }
+
+    fn make_monoportal_scene(&mut self, identify_points: &mut Vec<(usize, usize)>) {
+        let mut portal_x = (self.sizex as f32 * 0.5) as usize;
+        let mut start_y = (self.sizey as f32 * 0.4) as usize;
+        let mut center_y = (self.sizey as f32 * 0.5) as usize;
+        let mut end_y = (self.sizey as f32 * 0.6) as usize;
+
+        let sizey = self.sizey;
+        let get_index = |i, j| SpaceParticleView::new(i * sizey + j); // I'm not using method because of stupid borrowing issues, why rust can't handle that
+
+        // -------------------------------------------------------------------
+
+        // Disconnect singularity points from up and down
+
+        sg_disconnect!(self, get_index(portal_x, start_y), D);
+        sg_disconnect!(self, get_index(portal_x, end_y), U);
+
+        identify_points.push((get_index(portal_x, start_y), get_index(portal_x, end_y)));
+
+        // -------------------------------------------------------------------
+
+        // Connect the main vertical surface
+
+        for j in start_y..=center_y {
+            sg_connect_flip_180!(self, get_index(portal_x, j), get_index(portal_x, end_y - j), R);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -936,6 +1006,9 @@ impl Mesh {
         }
         if scene == "negative_portal" {
             space_graph.make_negative_portal_scene(&mut self.identify_points);
+        }
+        if scene == "monoportal" {
+            space_graph.make_monoportal_scene(&mut self.identify_points);
         }
 
         macro_rules! trying {
