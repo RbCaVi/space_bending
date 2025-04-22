@@ -665,8 +665,8 @@ impl SpaceGraph {
         sg_disconnect!(self, get_index(orange_x, start_y), D);
         sg_disconnect!(self, get_index(orange_x, end_y), U);
 
-        identify_points.push((get_index(blue_x, start_y), get_index(orange_x, start_y)));
-        identify_points.push((get_index(blue_x, end_y), get_index(orange_x, end_y)));
+        identify_points.push((get_index(blue_x, start_y).idx, get_index(orange_x, start_y).idx));
+        identify_points.push((get_index(blue_x, end_y).idx, get_index(orange_x, end_y).idx));
 
         // -------------------------------------------------------------------
 
@@ -695,8 +695,8 @@ impl SpaceGraph {
         sg_disconnect!(self, get_index(orange_x, start_y), D);
         sg_disconnect!(self, get_index(orange_x, end_y), U);
 
-        identify_points.push((get_index(blue_x, start_y), get_index(orange_x, start_y)));
-        identify_points.push((get_index(blue_x, end_y), get_index(orange_x, end_y)));
+        identify_points.push((get_index(blue_x, start_y).idx, get_index(orange_x, start_y).idx));
+        identify_points.push((get_index(blue_x, end_y).idx, get_index(orange_x, end_y).idx));
 
         // -------------------------------------------------------------------
 
@@ -725,8 +725,8 @@ impl SpaceGraph {
         sg_disconnect!(self, get_index(orange_x, start_y), D);
         sg_disconnect!(self, get_index(orange_x, end_y), U);
 
-        identify_points.push((get_index(blue_x, start_y), get_index(orange_x, start_y)));
-        identify_points.push((get_index(blue_x, end_y), get_index(orange_x, end_y)));
+        identify_points.push((get_index(blue_x, start_y).idx, get_index(orange_x, start_y).idx));
+        identify_points.push((get_index(blue_x, end_y).idx, get_index(orange_x, end_y).idx));
 
         // -------------------------------------------------------------------
 
