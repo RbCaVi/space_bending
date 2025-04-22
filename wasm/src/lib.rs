@@ -791,7 +791,7 @@ impl SpaceGraph {
         sg_disconnect!(self, get_index(portal_x, start_y), D);
         sg_disconnect!(self, get_index(portal_x, end_y), U);
 
-        identify_points.push((get_index(portal_x, start_y), get_index(portal_x, end_y)));
+        identify_points.push((get_index(portal_x, start_y).idx, get_index(portal_x, end_y).idx));
 
         // -------------------------------------------------------------------
 
